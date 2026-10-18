@@ -26,7 +26,8 @@ const axisProps = (type: 'integer' | 'string') =>
   Object.fromEntries(
     (['selection', 'metaphor', 'rhythm', 'body'] as const).map((k) => [
       k,
-      type === 'integer' ? { type, minimum: 1, maximum: 5 } : { type },
+      // 構造化出力は minimum/maximum に非対応なので、範囲は説明文で伝え、受け取り側で clamp する
+      type === 'integer' ? { type, description: '1〜5 の整数' } : { type },
     ]),
   )
 
@@ -40,33 +41,34 @@ export async function reviewSubmission(input: {
 
   const message = await client.messages.create({
     model,
-    max_tokens: 2500,
+    max_tokens: 4000,
     system: SYSTEM,
-    tools: [
-      {
-        name: 'save_review',
-        description: '講評を保存する',
-        input_schema: {
+    output_config: {
+      format: {
+        type: 'json_schema',
+        schema: {
           type: 'object',
           properties: {
             scores: {
               type: 'object',
               properties: axisProps('integer'),
               required: ['selection', 'metaphor', 'rhythm', 'body'],
+              additionalProperties: false,
             },
             comments: {
               type: 'object',
               properties: axisProps('string'),
               required: ['selection', 'metaphor', 'rhythm', 'body'],
+              additionalProperties: false,
             },
             constraint_kept: { type: 'boolean' },
             overall: { type: 'string' },
           },
           required: ['scores', 'comments', 'constraint_kept', 'overall'],
+          additionalProperties: false,
         },
       },
-    ],
-    tool_choice: { type: 'tool', name: 'save_review' },
+    },
     messages: [
       {
         role: 'user',
@@ -87,7 +89,7 @@ export async function reviewSubmission(input: {
     ],
   })
 
-  const out = extractToolInput<ReviewOutput>(message, 'save_review')
+  const out = extractJson<ReviewOutput>(message)
   const clamp = (n: number) => Math.min(5, Math.max(1, Math.round(n)))
 
   return {

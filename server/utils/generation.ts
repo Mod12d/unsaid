@@ -26,23 +26,22 @@ export async function generatePromptContent(
 
   const message = await client.messages.create({
     model,
-    max_tokens: 2000,
+    max_tokens: 4000,
     system: SYSTEM,
-    tools: [
-      {
-        name: 'save_prompt',
-        description: 'お題の制約と模範文を保存する',
-        input_schema: {
+    output_config: {
+      format: {
+        type: 'json_schema',
+        schema: {
           type: 'object',
           properties: {
             constraint: { type: 'string', description: '制約を一文で' },
             reference_text: { type: 'string', description: '制約を守った模範文' },
           },
           required: ['constraint', 'reference_text'],
+          additionalProperties: false,
         },
       },
-    ],
-    tool_choice: { type: 'tool', name: 'save_prompt' },
+    },
     messages: [
       {
         role: 'user',
@@ -54,5 +53,5 @@ export async function generatePromptContent(
     ],
   })
 
-  return { ...extractToolInput<Generated>(message, 'save_prompt'), model }
+  return { ...extractJson<Generated>(message), model }
 }

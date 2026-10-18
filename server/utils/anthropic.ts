@@ -11,12 +11,17 @@ export function useAnthropic() {
   return { client, model: config.anthropicModel }
 }
 
-// tool_choice で特定のツールを強制し、その入力（= 構造化された出力）を取り出す。
-// JSON を文章からパースするより壊れにくい。
-export function extractToolInput<T>(message: Anthropic.Message, toolName: string): T {
-  const block = message.content.find(
-    (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === toolName,
-  )
+// 構造化出力（output_config.format: json_schema）の応答から JSON を取り出す。
+// スキーマに沿った JSON が text ブロックで返ってくる。
+// https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+export function extractJson<T>(message: Anthropic.Message): T {
+  if (message.stop_reason === 'max_tokens') {
+    throw createError({ statusCode: 502, statusMessage: 'AI の応答が途中で切れました' })
+  }
+  if (message.stop_reason === 'refusal') {
+    throw createError({ statusCode: 502, statusMessage: 'AI が応答を拒否しました' })
+  }
+  const block = message.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
   if (!block) throw createError({ statusCode: 502, statusMessage: 'AI の応答形式が想定外です' })
-  return block.input as T
+  return JSON.parse(block.text) as T
 }
