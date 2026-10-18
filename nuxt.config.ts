@@ -21,7 +21,7 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'Image to Text',
+      title: 'Unsaid',
       htmlAttrs: { lang: 'ja' },
       link: [
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },

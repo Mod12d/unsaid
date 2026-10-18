@@ -11,7 +11,7 @@ async function signOut() {
 <template>
   <div class="shell">
     <header class="masthead">
-      <NuxtLink to="/" class="wordmark">Image&nbsp;to&nbsp;Text</NuxtLink>
+      <NuxtLink to="/" class="wordmark">Unsaid</NuxtLink>
       <span class="tagline">一日一枚、絵を言葉に</span>
       <button v-if="user" class="link" @click="signOut">ログアウト</button>
     </header>

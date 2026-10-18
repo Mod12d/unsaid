@@ -27,7 +27,7 @@ export async function pickRandomPainting(excludeIds: Set<string>): Promise<Picke
     const from = Math.floor(Math.random() * 1000)
     const res = await $fetch<{ data: AicArtwork[] }>(`${AIC_API}/artworks/search`, {
       method: 'POST',
-      headers: { 'AIC-User-Agent': 'image-to-text (pilot)' },
+      headers: { 'AIC-User-Agent': 'unsaid (pilot)' },
       body: {
         query: {
           bool: {
