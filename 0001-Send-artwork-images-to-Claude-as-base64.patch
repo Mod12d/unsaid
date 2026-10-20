@@ -1,0 +1,77 @@
+From 3d47941f04b76c0ef8fd797bacaab79e5d773a63 Mon Sep 17 00:00:00 2001
+From: y10i <terumi887@gmail.com>
+Date: Wed, 21 Oct 2026 07:49:15 +0900
+Subject: [PATCH] Send artwork images to Claude as base64
+
+Anthropic could not download AIC IIIF image URLs directly
+("Unable to download the file"). Fetch the image server-side
+and pass it as a base64 image block instead.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WPvKoe9XoPDb9BDDJ8ya4Q
+---
+ server/utils/anthropic.ts  | 20 ++++++++++++++++++++
+ server/utils/generation.ts |  2 +-
+ server/utils/review.ts     |  2 +-
+ 3 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/server/utils/anthropic.ts b/server/utils/anthropic.ts
+index 3e6db9e..17ffd8f 100644
+--- a/server/utils/anthropic.ts
++++ b/server/utils/anthropic.ts
+@@ -11,6 +11,26 @@ export function useAnthropic() {
+   return { client, model: config.anthropicModel }
+ }
+ 
++// 画像はこちらで取得して base64 で渡す。
++// URL を渡すと Anthropic 側がダウンロードするが、美術館の画像サーバーが外部からの取得を弾くことがあるため。
++const SUPPORTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
++type MediaType = (typeof SUPPORTED_MEDIA_TYPES)[number]
++
++export async function imageBlock(url: string): Promise<Anthropic.ImageBlockParam> {
++  const res = await fetch(url, {
++    headers: { 'User-Agent': 'unsaid (pilot)', 'AIC-User-Agent': 'unsaid (pilot)' },
++  })
++  if (!res.ok) {
++    throw createError({ statusCode: 502, statusMessage: `画像を取得できませんでした (${res.status})` })
++  }
++  const contentType = (res.headers.get('content-type') ?? 'image/jpeg').split(';')[0]!.trim()
++  const mediaType: MediaType = (SUPPORTED_MEDIA_TYPES as readonly string[]).includes(contentType)
++    ? (contentType as MediaType)
++    : 'image/jpeg'
++  const data = Buffer.from(await res.arrayBuffer()).toString('base64')
++  return { type: 'image', source: { type: 'base64', media_type: mediaType, data } }
++}
++
+ // 構造化出力（output_config.format: json_schema）の応答から JSON を取り出す。
+ // スキーマに沿った JSON が text ブロックで返ってくる。
+ // https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+diff --git a/server/utils/generation.ts b/server/utils/generation.ts
+index 373f6de..24078d8 100644
+--- a/server/utils/generation.ts
++++ b/server/utils/generation.ts
+@@ -46,7 +46,7 @@ export async function generatePromptContent(
+       {
+         role: 'user',
+         content: [
+-          { type: 'image', source: { type: 'url', url: artwork.image_url } },
++          await imageBlock(artwork.image_url),
+           { type: 'text', text: `目標字数: ${targetLength}字` },
+         ],
+       },
+diff --git a/server/utils/review.ts b/server/utils/review.ts
+index 77b4cc4..232c11c 100644
+--- a/server/utils/review.ts
++++ b/server/utils/review.ts
+@@ -73,7 +73,7 @@ export async function reviewSubmission(input: {
+       {
+         role: 'user',
+         content: [
+-          { type: 'image', source: { type: 'url', url: input.imageUrl } },
++          await imageBlock(input.imageUrl),
+           {
+             type: 'text',
+             text: [
+-- 
+2.43.0
+

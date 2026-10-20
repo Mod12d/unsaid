@@ -1,0 +1,61 @@
+From 2d840dd4730b5201bbe1c724d10fc0f1feb239a0 Mon Sep 17 00:00:00 2001
+From: y10i <terumi887@gmail.com>
+Date: Wed, 21 Oct 2026 07:53:07 +0900
+Subject: [PATCH] Serve artwork images through our own API route
+
+The browser could not load AIC IIIF images directly. Proxy them via
+/api/artworks/:id/image with a one-day private cache.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WPvKoe9XoPDb9BDDJ8ya4Q
+---
+ app/pages/index.vue                   |  2 +-
+ server/api/artworks/[id]/image.get.ts | 23 +++++++++++++++++++++++
+ 2 files changed, 24 insertions(+), 1 deletion(-)
+ create mode 100644 server/api/artworks/[id]/image.get.ts
+
+diff --git a/app/pages/index.vue b/app/pages/index.vue
+index bf63d77..2d69db1 100644
+--- a/app/pages/index.vue
++++ b/app/pages/index.vue
+@@ -49,7 +49,7 @@ async function retryReview() {
+ 
+   <article v-else class="today">
+     <figure class="artwork">
+-      <img :src="prompt.artworks.image_url" :alt="prompt.artworks.title" />
++      <img :src="`/api/artworks/${prompt.artworks.id}/image`" :alt="prompt.artworks.title" />
+       <figcaption>
+         <span class="title">{{ prompt.artworks.title }}</span>
+         <span>{{ prompt.artworks.artist }}</span>
+diff --git a/server/api/artworks/[id]/image.get.ts b/server/api/artworks/[id]/image.get.ts
+new file mode 100644
+index 0000000..fccfcc5
+--- /dev/null
++++ b/server/api/artworks/[id]/image.get.ts
+@@ -0,0 +1,23 @@
++import { serverSupabaseClient } from '#supabase/server'
++
++// 絵の画像を自分のサーバー経由で配信する。
++// 美術館の画像サーバーはブラウザからの直接読み込みを弾くことがあるため。
++export default defineEventHandler(async (event) => {
++  await requireUserId(event)
++  const id = getRouterParam(event, 'id')
++  if (!id) throw createError({ statusCode: 400 })
++
++  const db = await serverSupabaseClient(event)
++  const { data: artwork } = await db.from('artworks').select('image_url').eq('id', id).maybeSingle()
++  if (!artwork) throw createError({ statusCode: 404 })
++
++  const res = await fetch(artwork.image_url, {
++    headers: { 'User-Agent': 'unsaid (pilot)', 'AIC-User-Agent': 'unsaid (pilot)' },
++  })
++  if (!res.ok) throw createError({ statusCode: 502, statusMessage: `画像を取得できませんでした (${res.status})` })
++
++  setHeader(event, 'Content-Type', res.headers.get('content-type') ?? 'image/jpeg')
++  // 同じ絵の画像は変わらないので、ブラウザに一日キャッシュさせる
++  setHeader(event, 'Cache-Control', 'private, max-age=86400')
++  return Buffer.from(await res.arrayBuffer())
++})
+-- 
+2.43.0
+

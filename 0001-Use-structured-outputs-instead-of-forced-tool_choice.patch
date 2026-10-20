@@ -1,0 +1,171 @@
+From f9b2cc7d6959f399d9b91a531154694980c611fe Mon Sep 17 00:00:00 2001
+From: y10i <terumi887@gmail.com>
+Date: Sun, 18 Oct 2026 16:37:36 +0900
+Subject: [PATCH] Use structured outputs instead of forced tool_choice
+
+Forced tool_choice (type tool/any) is rejected by the current model.
+Switch prompt generation and review to output_config.format with a
+JSON schema, drop unsupported minimum/maximum, clamp scores in code.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WPvKoe9XoPDb9BDDJ8ya4Q
+---
+ README.md                  |  2 +-
+ server/utils/anthropic.ts  | 19 ++++++++++++-------
+ server/utils/generation.ts | 17 ++++++++---------
+ server/utils/review.ts     | 22 ++++++++++++----------
+ 4 files changed, 33 insertions(+), 27 deletions(-)
+
+diff --git a/README.md b/README.md
+index 7fab377..fdbac3a 100644
+--- a/README.md
++++ b/README.md
+@@ -36,7 +36,7 @@
+ 
+ ## AI まわりの判断
+ 
+-- **構造化出力は tool use で取る。** `tool_choice` で特定のツールを強制し、その入力を出力として受け取る。文章から JSON をパースするより壊れにくい。
++- **構造化出力は `output_config.format`（JSON Schema）で取る。** スキーマに沿った JSON が必ず返るので、文章から JSON を拾うより壊れにくい。点数の 1〜5 の範囲はスキーマで縛れないため、受け取り側で丸めている。
+ - **講評に模範文を見せない。** 「模範文に似ているか」で採点されるのを避けるため。
+ - **講評が失敗しても投稿は残す。** 画面から再実行できる（`/api/submissions/:id/review`）。
+ 
+diff --git a/server/utils/anthropic.ts b/server/utils/anthropic.ts
+index 3ff8f1c..3e6db9e 100644
+--- a/server/utils/anthropic.ts
++++ b/server/utils/anthropic.ts
+@@ -11,12 +11,17 @@ export function useAnthropic() {
+   return { client, model: config.anthropicModel }
+ }
+ 
+-// tool_choice で特定のツールを強制し、その入力（= 構造化された出力）を取り出す。
+-// JSON を文章からパースするより壊れにくい。
+-export function extractToolInput<T>(message: Anthropic.Message, toolName: string): T {
+-  const block = message.content.find(
+-    (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === toolName,
+-  )
++// 構造化出力（output_config.format: json_schema）の応答から JSON を取り出す。
++// スキーマに沿った JSON が text ブロックで返ってくる。
++// https://platform.claude.com/docs/en/build-with-claude/structured-outputs
++export function extractJson<T>(message: Anthropic.Message): T {
++  if (message.stop_reason === 'max_tokens') {
++    throw createError({ statusCode: 502, statusMessage: 'AI の応答が途中で切れました' })
++  }
++  if (message.stop_reason === 'refusal') {
++    throw createError({ statusCode: 502, statusMessage: 'AI が応答を拒否しました' })
++  }
++  const block = message.content.find((b): b is Anthropic.TextBlock => b.type === 'text')
+   if (!block) throw createError({ statusCode: 502, statusMessage: 'AI の応答形式が想定外です' })
+-  return block.input as T
++  return JSON.parse(block.text) as T
+ }
+diff --git a/server/utils/generation.ts b/server/utils/generation.ts
+index cc576be..373f6de 100644
+--- a/server/utils/generation.ts
++++ b/server/utils/generation.ts
+@@ -26,23 +26,22 @@ export async function generatePromptContent(
+ 
+   const message = await client.messages.create({
+     model,
+-    max_tokens: 2000,
++    max_tokens: 4000,
+     system: SYSTEM,
+-    tools: [
+-      {
+-        name: 'save_prompt',
+-        description: 'お題の制約と模範文を保存する',
+-        input_schema: {
++    output_config: {
++      format: {
++        type: 'json_schema',
++        schema: {
+           type: 'object',
+           properties: {
+             constraint: { type: 'string', description: '制約を一文で' },
+             reference_text: { type: 'string', description: '制約を守った模範文' },
+           },
+           required: ['constraint', 'reference_text'],
++          additionalProperties: false,
+         },
+       },
+-    ],
+-    tool_choice: { type: 'tool', name: 'save_prompt' },
++    },
+     messages: [
+       {
+         role: 'user',
+@@ -54,5 +53,5 @@ export async function generatePromptContent(
+     ],
+   })
+ 
+-  return { ...extractToolInput<Generated>(message, 'save_prompt'), model }
++  return { ...extractJson<Generated>(message), model }
+ }
+diff --git a/server/utils/review.ts b/server/utils/review.ts
+index 97c62bc..77b4cc4 100644
+--- a/server/utils/review.ts
++++ b/server/utils/review.ts
+@@ -26,7 +26,8 @@ const axisProps = (type: 'integer' | 'string') =>
+   Object.fromEntries(
+     (['selection', 'metaphor', 'rhythm', 'body'] as const).map((k) => [
+       k,
+-      type === 'integer' ? { type, minimum: 1, maximum: 5 } : { type },
++      // 構造化出力は minimum/maximum に非対応なので、範囲は説明文で伝え、受け取り側で clamp する
++      type === 'integer' ? { type, description: '1〜5 の整数' } : { type },
+     ]),
+   )
+ 
+@@ -40,33 +41,34 @@ export async function reviewSubmission(input: {
+ 
+   const message = await client.messages.create({
+     model,
+-    max_tokens: 2500,
++    max_tokens: 4000,
+     system: SYSTEM,
+-    tools: [
+-      {
+-        name: 'save_review',
+-        description: '講評を保存する',
+-        input_schema: {
++    output_config: {
++      format: {
++        type: 'json_schema',
++        schema: {
+           type: 'object',
+           properties: {
+             scores: {
+               type: 'object',
+               properties: axisProps('integer'),
+               required: ['selection', 'metaphor', 'rhythm', 'body'],
++              additionalProperties: false,
+             },
+             comments: {
+               type: 'object',
+               properties: axisProps('string'),
+               required: ['selection', 'metaphor', 'rhythm', 'body'],
++              additionalProperties: false,
+             },
+             constraint_kept: { type: 'boolean' },
+             overall: { type: 'string' },
+           },
+           required: ['scores', 'comments', 'constraint_kept', 'overall'],
++          additionalProperties: false,
+         },
+       },
+-    ],
+-    tool_choice: { type: 'tool', name: 'save_review' },
++    },
+     messages: [
+       {
+         role: 'user',
+@@ -87,7 +89,7 @@ export async function reviewSubmission(input: {
+     ],
+   })
+ 
+-  const out = extractToolInput<ReviewOutput>(message, 'save_review')
++  const out = extractJson<ReviewOutput>(message)
+   const clamp = (n: number) => Math.min(5, Math.max(1, Math.round(n)))
+ 
+   return {
+-- 
+2.43.0
+
