@@ -46,7 +46,7 @@ export async function generatePromptContent(
       {
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'url', url: artwork.image_url } },
+          await imageBlock(artwork.image_url),
           { type: 'text', text: `目標字数: ${targetLength}字` },
         ],
       },

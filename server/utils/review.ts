@@ -73,7 +73,7 @@ export async function reviewSubmission(input: {
       {
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'url', url: input.imageUrl } },
+          await imageBlock(input.imageUrl),
           {
             type: 'text',
             text: [
