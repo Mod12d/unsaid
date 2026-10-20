@@ -65,3 +65,6 @@ cp .env.example .env   # 値を埋める
 
 - AIC の検索条件（`artwork_type_id: 1` = Painting）は、実データで一度確かめること。
 - 依存パッケージの一部は `latest` で入れている。`npm install` 後に `package-lock.json` を commit して版を固定する。
+
+## Image
+<img width="1062" height="630" alt="スクリーンショット 2026-10-21 7 59 08" src="https://github.com/user-attachments/assets/11e10273-53be-439c-b8bd-b178261ccdc1" />
