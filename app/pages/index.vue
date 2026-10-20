@@ -49,7 +49,7 @@ async function retryReview() {
 
   <article v-else class="today">
     <figure class="artwork">
-      <img :src="prompt.artworks.image_url" :alt="prompt.artworks.title" />
+      <img :src="`/api/artworks/${prompt.artworks.id}/image`" :alt="prompt.artworks.title" />
       <figcaption>
         <span class="title">{{ prompt.artworks.title }}</span>
         <span>{{ prompt.artworks.artist }}</span>
