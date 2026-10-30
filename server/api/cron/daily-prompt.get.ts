@@ -3,7 +3,9 @@ import { serverSupabaseServiceRole } from '#supabase/server'
 // 毎朝のお題生成。Vercel Cron は Authorization: Bearer <CRON_SECRET> を付けて叩く。
 // 手元では: curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/daily-prompt
 export default defineEventHandler(async (event) => {
-  const { cronSecret } = useRuntimeConfig()
+  // nuxt.config の process.env はビルド時に固定されるので、実行時の環境変数を直接読む。
+  // Vercel で後から CRON_SECRET を登録・変更しても、再ビルドなしで反映される。
+  const cronSecret = process.env.CRON_SECRET || useRuntimeConfig().cronSecret
   if (!cronSecret || getHeader(event, 'authorization') !== `Bearer ${cronSecret}`) {
     throw createError({ statusCode: 401 })
   }
