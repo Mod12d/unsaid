@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { serverSupabaseServiceRole } from '#supabase/server'
 
 // 毎朝のお題生成。Vercel Cron は Authorization: Bearer <CRON_SECRET> を付けて叩く。
@@ -5,8 +6,17 @@ import { serverSupabaseServiceRole } from '#supabase/server'
 export default defineEventHandler(async (event) => {
   // nuxt.config の process.env はビルド時に固定されるので、実行時の環境変数を直接読む。
   // Vercel で後から CRON_SECRET を登録・変更しても、再ビルドなしで反映される。
-  const cronSecret = process.env.CRON_SECRET || useRuntimeConfig().cronSecret
-  if (!cronSecret || getHeader(event, 'authorization') !== `Bearer ${cronSecret}`) {
+  const cronSecret = (process.env.CRON_SECRET || useRuntimeConfig().cronSecret || '').trim()
+  const received = (getHeader(event, 'authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
+  if (!cronSecret || received !== cronSecret) {
+    // 値そのものは出さず、長さとハッシュの先頭だけを記録する（食い違いの原因を調べるため）
+    const fp = (s: string) => (s ? createHash('sha256').update(s).digest('hex').slice(0, 8) : '-')
+    console.warn('[cron] unauthorized', {
+      serverLen: cronSecret.length,
+      serverHash: fp(cronSecret),
+      receivedLen: received.length,
+      receivedHash: fp(received),
+    })
     throw createError({ statusCode: 401 })
   }
 
